@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rust-check-and-test:
+    name: Rust Test & Dogfood
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run cargo tests
+        run: cargo test --all-targets
+
+      - name: Build docgov release
+        run: cargo build --release
+
+      - name: Self-host dogfood verification
+        run: ./target/release/docgov check
+
+  spec-and-tools-verify:
+    name: Spec Verification & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run Python unit tests
+        run: python3 -W error -m unittest discover -s tests -v
+
+      - name: Verify spec integrity and drift
+        run: ./tools/verify.sh .
