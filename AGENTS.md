@@ -74,7 +74,15 @@ You are bound by repository invariants. Violations will fail CI (`docgov check`)
   - In refactoring/investigation: MUST retrieve `superseded` docs as negative constraints (learn from historical failure modes).
 - `[INV-AGENT-03] Blameless Postmortem`: Postmortems MUST analyze system defense failures and detection gaps. Attribution of personal human blame is strictly prohibited.
 
-### 3. Fast Verification
+### 3. Canonical Governance Knowledge & Context
+Before drafting or restructuring documentation, inspect the local governance specifications:
+- 4D Coordinate Tensor: `docs/governance/documentation/core/taxonomy.md`
+- System Invariants Constitution: `docs/governance/documentation/core/invariants.md`
+- Technical Voice & Link Contracts: `docs/governance/documentation/core/style.md`
+- ADR & Architecture RFC Standard: `docs/governance/documentation/profiles/architecture/adr.md`
+- Quality & Verification Guides: `docs/governance/documentation/profiles/validation/testing.md`
+
+### 4. Fast Verification
 Before completing any task, run:
 ```bash
 docgov check

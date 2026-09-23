@@ -314,3 +314,50 @@ fn test_lockfile_drift_detection() {
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].message.contains("drifted from .docgov.lock"));
 }
+
+#[test]
+fn test_sync_governance_docs_atomic_prune() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // 1. Create a business doc outside the managed mirror
+    let user_adr = root.join("docs/adr/0001-my-feature.md");
+    fs::create_dir_all(user_adr.parent().unwrap()).unwrap();
+    fs::write(&user_adr, "# Business ADR\n").unwrap();
+
+    // 2. Create an obsolete ghost file inside the managed mirror
+    let ghost_file = root.join("docs/governance/documentation/obsolete_ghost_rule.md");
+    fs::create_dir_all(ghost_file.parent().unwrap()).unwrap();
+    fs::write(
+        &ghost_file,
+        "This is an obsolete rule from an older version\n",
+    )
+    .unwrap();
+
+    assert!(ghost_file.exists());
+
+    // 3. Run sync_governance_docs
+    let client =
+        docgov::remote::RemoteClient::new("https://github.com/ming2k/docs-governance", "v0.0.1");
+    client
+        .sync_governance_docs(root, "docs/governance/documentation", true)
+        .unwrap();
+
+    // 4. Verify canonical files were unpacked
+    assert!(root
+        .join("docs/governance/documentation/core/invariants.md")
+        .exists());
+    assert!(root
+        .join("docs/governance/documentation/core/taxonomy.md")
+        .exists());
+
+    // 5. Verify the obsolete ghost file was completely pruned!
+    assert!(
+        !ghost_file.exists(),
+        "Obsolete file must be pruned during full atomic replacement!"
+    );
+
+    // 6. Verify user's business doc was completely untouched!
+    assert!(user_adr.exists());
+    assert_eq!(fs::read_to_string(&user_adr).unwrap(), "# Business ADR\n");
+}

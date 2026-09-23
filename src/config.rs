@@ -23,11 +23,14 @@ pub struct Config {
     pub upstream: UpstreamConfig,
 
     #[serde(default)]
+    pub governance_docs: GovernanceDocsConfig,
+
+    #[serde(default)]
     pub triggers: Vec<TriggerConfig>,
 }
 
 fn default_version() -> String {
-    "0.0.1".to_string()
+    "0.0.2".to_string()
 }
 
 impl Default for Config {
@@ -39,6 +42,7 @@ impl Default for Config {
             architecture: ArchitectureConfig::default(),
             agent_directives: AgentDirectivesConfig::default(),
             upstream: UpstreamConfig::default(),
+            governance_docs: GovernanceDocsConfig::default(),
             triggers: Vec::new(),
         }
     }
@@ -203,7 +207,7 @@ fn default_upstream_source() -> String {
 }
 
 fn default_upstream_ref() -> String {
-    "v0.0.1".to_string()
+    "v0.0.2".to_string()
 }
 
 impl Default for UpstreamConfig {
@@ -211,6 +215,28 @@ impl Default for UpstreamConfig {
         Self {
             source: default_upstream_source(),
             r#ref: default_upstream_ref(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GovernanceDocsConfig {
+    #[serde(default = "default_true")]
+    pub install: bool,
+
+    #[serde(default = "default_governance_target_dir")]
+    pub target_dir: String,
+}
+
+fn default_governance_target_dir() -> String {
+    "docs/governance/documentation".to_string()
+}
+
+impl Default for GovernanceDocsConfig {
+    fn default() -> Self {
+        Self {
+            install: true,
+            target_dir: default_governance_target_dir(),
         }
     }
 }

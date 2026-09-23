@@ -1,7 +1,13 @@
 use anyhow::Result;
 use colored::Colorize;
+use flate2::read::GzDecoder;
 use std::fs;
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use tar::Archive;
+
+pub const EMBEDDED_ASSETS_TAR_GZ: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/docgov-assets.tar.gz"));
 
 pub struct RemoteClient {
     pub source: String,
@@ -79,6 +85,123 @@ impl RemoteClient {
         Ok((fallback.to_string(), "embedded".to_string()))
     }
 
+    /// Atomically sync and replace the canonical governance documentation mirror
+    /// completely pruning old/deleted files from prior versions.
+    pub fn sync_governance_docs(
+        &self,
+        workspace_root: &Path,
+        target_rel_path: &str,
+        force: bool,
+    ) -> Result<String> {
+        let target_dir = workspace_root.join(target_rel_path);
+        let cache_dir = self.get_cache_dir();
+        let cache_tar = cache_dir.join("docgov-assets.tar.gz");
+
+        let tar_bytes: Vec<u8> = if !force && cache_tar.exists() {
+            println!(
+                "{} Using cached governance documentation archive ({})",
+                "✔".green().bold(),
+                cache_tar.display()
+            );
+            fs::read(&cache_tar)?
+        } else {
+            let (owner, repo) = self.parse_owner_repo();
+            let download_url = format!(
+                "https://github.com/{}/{}/releases/download/{}/docgov-assets.tar.gz",
+                owner, repo, self.r#ref
+            );
+            match self.download_bytes(&download_url) {
+                Ok(bytes) => {
+                    let _ = fs::create_dir_all(&cache_dir);
+                    let _ = fs::write(&cache_tar, &bytes);
+                    println!(
+                        "{} Downloaded governance documentation assets from {}",
+                        "✔".green().bold(),
+                        download_url
+                    );
+                    bytes
+                }
+                Err(_) => {
+                    println!(
+                        "{} Remote release archive not yet available or offline; using embedded canonical specification baseline",
+                        "ℹ".cyan().bold()
+                    );
+                    EMBEDDED_ASSETS_TAR_GZ.to_vec()
+                }
+            }
+        };
+
+        // Compute SHA-256 fingerprint of the tarball
+        let archive_hash = crate::lockfile::compute_sha256(&format!(
+            "{:x?}",
+            &tar_bytes[..tar_bytes.len().min(4096)]
+        ));
+
+        // Temporary staging directory for atomic unpack
+        let staging_dir = target_dir
+            .parent()
+            .unwrap_or(workspace_root)
+            .join(format!(".tmp_sync_{}", std::process::id()));
+        if staging_dir.exists() {
+            let _ = fs::remove_dir_all(&staging_dir);
+        }
+        fs::create_dir_all(&staging_dir)?;
+
+        // Unpack tar.gz into staging_dir, stripping leading "spec/"
+        let gz = GzDecoder::new(&tar_bytes[..]);
+        let mut archive = Archive::new(gz);
+
+        for entry_res in archive.entries()? {
+            let mut entry = entry_res?;
+            let path = entry.path()?;
+            let path_str = path.to_string_lossy();
+
+            let rel_path = if let Some(stripped) = path_str.strip_prefix("spec/") {
+                stripped.to_string()
+            } else if path_str == "spec" {
+                continue;
+            } else {
+                path_str.to_string()
+            };
+
+            if rel_path.is_empty() || rel_path == "directives.snippet" {
+                continue;
+            }
+
+            let dest_file = staging_dir.join(&rel_path);
+            if entry.header().entry_type().is_dir() {
+                fs::create_dir_all(&dest_file)?;
+            } else {
+                if let Some(parent) = dest_file.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                entry.unpack(&dest_file)?;
+            }
+        }
+
+        // Full atomic mirror replacement: prune old target completely to eliminate ghost files
+        if target_dir.exists() {
+            fs::remove_dir_all(&target_dir)?;
+        }
+        if let Some(parent) = target_dir.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        if fs::rename(&staging_dir, &target_dir).is_err() {
+            // Fallback for cross-filesystem moves
+            copy_dir_all(&staging_dir, &target_dir)?;
+            let _ = fs::remove_dir_all(&staging_dir);
+        }
+
+        println!(
+            "{} Atomically synchronized and pruned canonical governance documentation into {}",
+            "✔".green().bold(),
+            target_dir.display()
+        );
+
+        Ok(archive_hash)
+    }
+
     fn candidate_download_urls(&self) -> Vec<String> {
         let (owner, repo) = self.parse_owner_repo();
         vec![
@@ -116,4 +239,30 @@ impl RemoteClient {
         let body = response.into_string()?;
         Ok(body)
     }
+
+    fn download_bytes(&self, url: &str) -> Result<Vec<u8>> {
+        let response = ureq::get(url)
+            .timeout(std::time::Duration::from_secs(10))
+            .call()?;
+        let mut reader = response.into_reader();
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else {
+            fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
 }

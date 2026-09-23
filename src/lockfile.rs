@@ -24,6 +24,9 @@ pub struct LockUpstream {
 pub struct LockArtifacts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_directives: Option<ArtifactEntry>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub governance_docs: Option<ArtifactEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

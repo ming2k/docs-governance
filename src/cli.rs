@@ -19,7 +19,7 @@ use crate::rules::lint_05_agent_directives::{
     name = "docgov",
     version,
     about = "High-performance, zero-vendoring documentation and architecture governance linter",
-    long_about = "A fast, deterministic compiler-grade linter for Protocol v0.0.1 documentation governance and system invariants."
+    long_about = "A fast, deterministic compiler-grade linter for Protocol v0.0.2 documentation governance and system invariants."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -43,7 +43,7 @@ pub enum OutputFormat {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Check repository compliance with all Protocol v0.0.1 invariants
+    /// Check repository compliance with all Protocol v0.0.2 invariants
     Check {
         /// Also run git-diff trigger matrix checks
         #[arg(long)]
@@ -64,6 +64,13 @@ pub enum Commands {
     /// Initialize standard .docgov.yml configuration and AGENTS.md in the current repository
     Init {
         /// Overwrite existing configuration or refresh directive blocks
+        #[arg(long, short = 'F')]
+        force: bool,
+    },
+
+    /// Sync and atomically update canonical governance documentation and directives
+    Sync {
+        /// Force re-fetch and re-download assets
         #[arg(long, short = 'F')]
         force: bool,
     },
@@ -137,6 +144,10 @@ pub fn run() -> Result<i32> {
             init_repo(&target_dir, force)?;
             Ok(0)
         }
+        Commands::Sync { force } => {
+            sync_repo(&target_dir, force)?;
+            Ok(0)
+        }
     }
 }
 
@@ -149,7 +160,7 @@ fn output_diagnostics(
         OutputFormat::Text => {
             if diagnostics.is_empty() {
                 println!(
-                    "{} All Protocol v0.0.1 documentation invariants verified in {:.3}s.",
+                    "{} All Protocol v0.0.2 documentation invariants verified in {:.3}s.",
                     "✔".green().bold(),
                     duration.as_secs_f64()
                 );
@@ -194,12 +205,17 @@ fn output_diagnostics(
 fn init_repo(dir: &std::path::Path, force: bool) -> Result<()> {
     let docgov_yml = dir.join(".docgov.yml");
 
-    let yml_content = r#"version: "0.0.1"
+    let yml_content = r#"version: "0.0.2"
 
 # Remote Upstream & Protocol Distribution
 upstream:
   source: "https://github.com/ming2k/docs-governance"
-  ref: "v0.0.1"
+  ref: "v0.0.2"
+
+# Canonical Governance Documentation Mirror (for Agent Context)
+governance_docs:
+  install: true
+  target_dir: "docs/governance/documentation"
 
 # [INV-LINT-01] Root Location Sanitization
 root_sanitization:
@@ -252,7 +268,11 @@ triggers:
         println!("{} Exists: {}", "~".yellow().bold(), docgov_yml.display());
     }
 
-    // Load configuration to discover agent directive targets and upstream configuration
+    sync_repo(dir, force)
+}
+
+fn sync_repo(dir: &std::path::Path, force: bool) -> Result<()> {
+    // Load configuration to discover agent directive targets, upstream and governance docs settings
     let (cfg, _) = Config::load_from_dir(dir).unwrap_or((Config::default(), None));
 
     // Fetch directives using remote client (checks local cache first, fallback to embedded)
@@ -273,6 +293,7 @@ triggers:
     lock.upstream.source = cfg.upstream.source.clone();
     lock.upstream.r#ref = cfg.upstream.r#ref.clone();
 
+    // 1. Synchronize agent directives (non-invasively, preserving custom guidelines & single #)
     for target in targets {
         let target_path = dir.join(&target);
         let existing = if target_path.exists() {
@@ -338,6 +359,16 @@ triggers:
                 }
             }
         }
+    }
+
+    // 2. Synchronize canonical governance documentation mirror (full atomic mirror replacement & pruning)
+    if cfg.governance_docs.install {
+        let archive_hash =
+            remote_client.sync_governance_docs(dir, &cfg.governance_docs.target_dir, force)?;
+        lock.artifacts.governance_docs = Some(ArtifactEntry {
+            target: cfg.governance_docs.target_dir.clone(),
+            hash: archive_hash,
+        });
     }
 
     lock.save_to_dir(dir)?;
