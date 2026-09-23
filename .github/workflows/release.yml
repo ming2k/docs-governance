@@ -111,6 +111,8 @@ jobs:
     name: Publish to crates.io
     needs: build-binaries
     runs-on: ubuntu-latest
+    env:
+      CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -119,5 +121,5 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Publish crate
-        if: ${{ secrets.CRATES_IO_TOKEN != '' }}
+        if: env.CRATES_IO_TOKEN != ''
         run: cargo publish --token "${{ secrets.CRATES_IO_TOKEN }}"

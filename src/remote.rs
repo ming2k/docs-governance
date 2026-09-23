@@ -64,10 +64,14 @@ impl RemoteClient {
             if !xdg.is_empty() {
                 PathBuf::from(xdg).join("docgov")
             } else {
-                dirs::cache_dir().unwrap_or_else(fallback_cache_dir).join("docgov")
+                dirs::cache_dir()
+                    .unwrap_or_else(fallback_cache_dir)
+                    .join("docgov")
             }
         } else {
-            dirs::cache_dir().unwrap_or_else(fallback_cache_dir).join("docgov")
+            dirs::cache_dir()
+                .unwrap_or_else(fallback_cache_dir)
+                .join("docgov")
         };
 
         // Sanitize source identifier to make safe path
@@ -99,7 +103,10 @@ impl RemoteClient {
                     );
                 };
                 let content = fs::read_to_string(&candidate_file).with_context(|| {
-                    format!("Failed to read local snippet at {}", candidate_file.display())
+                    format!(
+                        "Failed to read local snippet at {}",
+                        candidate_file.display()
+                    )
                 })?;
                 println!(
                     "{} Using local specification directives ({})",
@@ -421,4 +428,3 @@ fn fallback_cache_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."));
     home.join(".cache")
 }
-

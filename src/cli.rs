@@ -286,8 +286,7 @@ fn sync_repo(dir: &std::path::Path, force: bool, local: bool) -> Result<()> {
 
     // Fetch directives using remote client (checks local spec, local cache, or remote endpoints)
     let remote_client = RemoteClient::new(&source, &r#ref);
-    let (directives_content, _source_info) =
-        remote_client.fetch_directives(Some(dir))?;
+    let (directives_content, _source_info) = remote_client.fetch_directives(Some(dir))?;
 
     let targets = if cfg.agent_directives.targets.is_empty() {
         vec!["AGENTS.md".to_string()]
@@ -295,9 +294,8 @@ fn sync_repo(dir: &std::path::Path, force: bool, local: bool) -> Result<()> {
         cfg.agent_directives.targets
     };
 
-    let mut lock = DocgovLock::load_from_dir(dir)?.unwrap_or_else(|| {
-        DocgovLock::new(&cfg.version, &source, &r#ref)
-    });
+    let mut lock = DocgovLock::load_from_dir(dir)?
+        .unwrap_or_else(|| DocgovLock::new(&cfg.version, &source, &r#ref));
     lock.protocol_version = cfg.version.clone();
     lock.upstream.source = source.clone();
     lock.upstream.r#ref = r#ref.clone();

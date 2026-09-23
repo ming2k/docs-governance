@@ -437,7 +437,8 @@ fn test_local_spec_sync_deterministic_hash_and_directives() {
 
 #[test]
 fn test_xdg_cache_dir_resolution() {
-    let client = docgov::remote::RemoteClient::new("https://github.com/ming2k/docs-governance", "v0.0.4");
+    let client =
+        docgov::remote::RemoteClient::new("https://github.com/ming2k/docs-governance", "v0.0.4");
 
     // Case 1: When XDG_CACHE_HOME is explicitly set, it must be strictly prioritized
     let custom_cache = tempdir().unwrap();
