@@ -18,7 +18,7 @@ use crate::rules::lint_05_agent_directives::{
     name = "docgov",
     version,
     about = "High-performance, zero-vendoring documentation and architecture governance linter",
-    long_about = "A fast, deterministic compiler-grade linter for Protocol v0.0.3 documentation governance and system invariants."
+    long_about = "A fast, deterministic compiler-grade linter for Protocol v0.0.4 documentation governance and system invariants."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -42,7 +42,7 @@ pub enum OutputFormat {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Check repository compliance with all Protocol v0.0.3 invariants
+    /// Check repository compliance with all Protocol v0.0.4 invariants
     Check {
         /// Also run git-diff trigger matrix checks
         #[arg(long)]
@@ -163,7 +163,7 @@ fn output_diagnostics(
         OutputFormat::Text => {
             if diagnostics.is_empty() {
                 println!(
-                    "{} All Protocol v0.0.3 documentation invariants verified in {:.3}s.",
+                    "{} All Protocol v0.0.4 documentation invariants verified in {:.3}s.",
                     "✔".green().bold(),
                     duration.as_secs_f64()
                 );
@@ -208,12 +208,12 @@ fn output_diagnostics(
 fn init_repo(dir: &std::path::Path, force: bool) -> Result<()> {
     let docgov_yml = dir.join(".docgov.yml");
 
-    let yml_content = r#"version: "0.0.3"
+    let yml_content = r#"version: "0.0.4"
 
 # Remote Upstream & Protocol Distribution
 upstream:
   source: "https://github.com/ming2k/docs-governance"
-  ref: "v0.0.3"
+  ref: "v0.0.4"
 
 # Canonical Governance Documentation Mirror (for Agent Context)
 governance_docs:

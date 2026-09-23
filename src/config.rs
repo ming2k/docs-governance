@@ -30,7 +30,7 @@ pub struct Config {
 }
 
 fn default_version() -> String {
-    "0.0.3".to_string()
+    "0.0.4".to_string()
 }
 
 impl Default for Config {
@@ -207,7 +207,7 @@ fn default_upstream_source() -> String {
 }
 
 fn default_upstream_ref() -> String {
-    "v0.0.3".to_string()
+    "v0.0.4".to_string()
 }
 
 impl Default for UpstreamConfig {

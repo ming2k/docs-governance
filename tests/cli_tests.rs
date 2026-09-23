@@ -434,3 +434,28 @@ fn test_local_spec_sync_deterministic_hash_and_directives() {
         .join("docs/governance/documentation/directives.snippet")
         .exists());
 }
+
+#[test]
+fn test_xdg_cache_dir_resolution() {
+    let client = docgov::remote::RemoteClient::new("https://github.com/ming2k/docs-governance", "v0.0.4");
+
+    // Case 1: When XDG_CACHE_HOME is explicitly set, it must be strictly prioritized
+    let custom_cache = tempdir().unwrap();
+    std::env::set_var("XDG_CACHE_HOME", custom_cache.path());
+    let cache_dir = client.get_cache_dir();
+    assert!(
+        cache_dir.starts_with(custom_cache.path()),
+        "Cache dir must reside within XDG_CACHE_HOME when set! Got: {}",
+        cache_dir.display()
+    );
+    assert!(cache_dir.to_string_lossy().contains("docgov"));
+    assert!(cache_dir.to_string_lossy().contains("v0.0.4"));
+
+    // Case 2: Clean up env var
+    std::env::remove_var("XDG_CACHE_HOME");
+    let fallback_dir = client.get_cache_dir();
+    assert!(
+        fallback_dir.to_string_lossy().contains("docgov"),
+        "Fallback cache dir must still be namespaced under docgov"
+    );
+}

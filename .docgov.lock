@@ -1,5 +1,5 @@
 # Generated automatically by docgov. Do not edit manually.
-protocol_version: 0.0.3
+protocol_version: 0.0.4
 upstream:
   source: .
   ref: local

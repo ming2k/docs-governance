@@ -54,10 +54,21 @@ impl RemoteClient {
         None
     }
 
-    /// Determine local cache directory for this specific upstream and ref
+    /// Determine local cache directory for this specific upstream and ref.
+    /// Strictly complies with the XDG Base Directory Specification:
+    /// 1. Prioritizes `$XDG_CACHE_HOME/docgov` if set and non-empty.
+    /// 2. Falls back to OS-native cache directory via `dirs::cache_dir()`.
+    /// 3. Safely falls back to `~/.cache/docgov` if environment lookup fails.
     pub fn get_cache_dir(&self) -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let cache_base = PathBuf::from(home).join(".cache").join("docgov");
+        let base = if let Some(xdg) = std::env::var_os("XDG_CACHE_HOME") {
+            if !xdg.is_empty() {
+                PathBuf::from(xdg).join("docgov")
+            } else {
+                dirs::cache_dir().unwrap_or_else(fallback_cache_dir).join("docgov")
+            }
+        } else {
+            dirs::cache_dir().unwrap_or_else(fallback_cache_dir).join("docgov")
+        };
 
         // Sanitize source identifier to make safe path
         let sanitized_source = self
@@ -68,7 +79,7 @@ impl RemoteClient {
             .replace("github:", "")
             .replace(['/', ':', '@'], "_");
 
-        cache_base.join(sanitized_source).join(&self.r#ref)
+        base.join(sanitized_source).join(&self.r#ref)
     }
 
     /// Fetch directives snippet with local-spec, cache-first, and remote-network strategy.
@@ -402,3 +413,12 @@ fn compute_dir_sha256(dir: &Path) -> Result<String> {
     }
     Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
 }
+
+fn fallback_cache_dir() -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    home.join(".cache")
+}
+
