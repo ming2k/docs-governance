@@ -6,21 +6,13 @@ Instructions for AI coding assistants working in the `docs-governance` repositor
 
 ## 1. Repository Identity & Mission
 
-`docs-governance` is a portable, protocol-versioned documentation governance standard and verification toolchain for software engineering repositories.
+`docs-governance` is a portable, protocol-versioned documentation governance standard and verification toolchain (`docgov`) for software engineering repositories.
 
-The repository follows the **Clean-Break Architecture** (Protocol v5.0.0):
-1. **`spec/core/`**: The universal meta-governance protocol:
-   - `taxonomy.md`: 4-Dimensional spatial coordinate tensor (Temperature x Lifecycle x Audience x Cognitive Mode).
-   - `invariants.md`: Codified constitution of numbered system invariants (`[INV-*]`).
-   - `workflow.md`: Unified code-to-doc trigger matrix, PR review gates, intake SOP, and adoption.
-   - `style.md`: Technical voice, structural syntax, and link contracts.
-   - `index.md`: Protocol charter and core directory navigation.
-2. **`spec/profiles/`**: Pluggable vertical domain capability entities:
-   - `architecture/`: `adr.md`, `living-snapshot.md`, `rfc.md`, `index.md`.
-   - `validation/`: `acceptance.md`, `testing.md`, `index.md`.
-   - `operations/`: `postmortem.md`, `index.md`.
+The repository structure:
+1. **`spec/core/`**: The universal meta-governance protocol (taxonomy, invariants, workflow, style, index).
+2. **`spec/profiles/`**: Pluggable vertical domain capability entities (`architecture/`, `validation/`, `operations/`).
 3. **`spec/contracts.md`**: Template for downstream repository contract and profile declarations.
-4. **`tools/`**: Self-contained verification and distribution utilities (`sync.sh`, `verify.sh`, `update-hashes.sh`).
+4. **`src/`**: High-performance compiler-grade Rust Linter & sync engine (`docgov`).
 5. **`docs/`**: The self-hosted (dogfooding) documentation for `docs-governance` itself.
 
 ---
@@ -31,10 +23,8 @@ The repository follows the **Clean-Break Architecture** (Protocol v5.0.0):
 - `spec/` defines portable governance policy adopted across downstream repositories.
 - AI assistants may read `spec/` and suggest improvements, but must only edit it upon explicit maintainer instruction.
 - **Whenever `spec/` files change**:
-  1. Follow the **Four-Tier Admission Filter** defined in `spec/core/workflow.md` (Tier 0 Core vs Tier 1 Pattern vs Tier 2 Profile).
-  2. Evaluate protocol version bump (`protocol_version` in `spec/.manifest.json`) per semantic versioning rules.
-  3. Run `./tools/update-hashes.sh` to update cryptographic SHA-256 signatures in `spec/.manifest.json`.
-  4. Run `./tools/sync.sh .` and `./tools/verify.sh .` to update and verify the local `docs/governance/documentation/` mirror.
+  1. Follow the **Four-Tier Admission Filter** defined in `spec/core/workflow.md`.
+  2. Run `docgov sync` to update and verify the local `docs/governance/documentation/` mirror.
 
 ### B. The `docs/` Directory
 - Follow the 4D Spatial Tensor defined in `docs/governance/documentation/core/taxonomy.md`.
@@ -48,11 +38,10 @@ The repository follows the **Clean-Break Architecture** (Protocol v5.0.0):
 
 ## 3. Toolchain & Testing Invariants
 
-- **`[INV-TOOL-01]` Zero External Dependencies**: All tools in `tools/` must rely strictly on standard POSIX shell (`/bin/bash` or `/bin/sh`) and Python 3 standard library (`hashlib`, `json`, `os`, `shutil`, `sys`).
 - **Automated Verification**: Before completing any task, run:
   ```bash
-  python3 -W error -m unittest discover -s tests -v
-  ./tools/verify.sh .
+  cargo test --all-targets
+  docgov check
   ```
 
 <!-- BEGIN DOCGOV DIRECTIVES -->

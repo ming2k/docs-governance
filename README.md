@@ -8,9 +8,9 @@ Designed for projects requiring strict architectural discipline, cross-language 
 
 ## 1. Overview
 
-`docs-governance` establishes a project-neutral, protocol-versioned standard (Protocol v5.0.0) based on the **Clean-Break Architecture**: a universal **Semantic Tensor Core** paired with pluggable **Vertical Domain Entities**.
+`docs-governance` establishes a project-neutral, protocol-versioned standard based on the **Clean-Break Architecture**: a universal **Semantic Tensor Core** paired with pluggable **Vertical Domain Entities**, driven by the high-performance Rust CLI **`docgov`**.
 
-Adopting repositories mirror the specification into `docs/governance/documentation/` and use the self-contained toolchain (`sync.sh`, `verify.sh`) to assemble and verify documentation surfaces declared in `contracts.md`.
+Adopting repositories initialize governance via `docgov init`, maintaining a clean canonical mirror under `docs/governance/documentation/` and non-invasive AI assistant directives in `AGENTS.md`.
 
 ### Key Capabilities:
 * **4D Spatial Coordinate Tensor**: Eliminates ad-hoc routing by deterministically placing every document into a unique `(Temperature, Lifecycle, Audience, Cognitive Mode)` coordinate.
@@ -91,36 +91,38 @@ docs/
 
 ---
 
-## 3. Verification & Distribution Toolchain
+## 3. Verification & Distribution Toolchain (`docgov`)
 
-The repository provides shell and Python utilities in `tools/`:
+`docgov` is a standalone, compiler-grade Rust CLI linter and governance driver for software repositories.
 
-### Update Downstream Repositories (`sync.sh`)
+### Installation
+
 ```bash
-# Synchronize core protocol and activated profiles to a downstream repository:
-./tools/sync.sh <target-repo-path>
+# Via mise (Recommended):
+mise use -g cargo:docgov
 
-# Force-overwrite locally modified templates with spec defaults:
-./tools/sync.sh <target-repo-path> --force-template
+# Or via cargo:
+cargo install docgov
 ```
 
-### Verify Integrity & Zero-Drift (`verify.sh`)
-```bash
-# Check compliance against the cryptographic manifest:
-./tools/verify.sh <target-repo-path>
-```
+### Commands
 
-### Recompute SHA-256 Hashes (`update-hashes.sh` — Maintainers Only)
 ```bash
-# Recompute SHA-256 signatures in spec/.manifest.json after modifying the spec:
-./tools/update-hashes.sh
+# 1. Initialize repository governance (creates .docgov.yml, .docgov.lock, patches AGENTS.md):
+docgov init
+
+# 2. Fast compiler-grade static verification (< 20ms in local dev and CI):
+docgov check
+
+# 3. Synchronize & atomically prune canonical governance documentation mirror:
+docgov sync
 ```
 
 ---
 
 ## 4. Quick Start: Adopting in Your Repository
 
-1. Run `./tools/sync.sh <repo-path>` to initialize the governance mirror and `contracts.md`.
-2. Edit `<repo-path>/docs/governance/documentation/contracts.md` to check active domain profiles (`core`, `architecture`, `validation`, `operations`).
-3. Re-run `./tools/sync.sh <repo-path>` to assemble the activated profile surfaces.
-4. Add `./tools/verify.sh .` to your CI pull request validation matrix.
+1. Install `docgov` via `mise use -g cargo:docgov` or `cargo install docgov`.
+2. In your repository root, run `docgov init`.
+3. Verify invariants at any time with `docgov check`.
+4. Add `docgov check` to your CI pull request validation matrix.

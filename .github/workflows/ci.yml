@@ -32,20 +32,3 @@ jobs:
 
       - name: Self-host dogfood verification
         run: ./target/release/docgov check
-
-  spec-and-tools-verify:
-    name: Spec Verification & Unit Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Run Python unit tests
-        run: python3 -W error -m unittest discover -s tests -v
-
-      - name: Verify spec integrity and drift
-        run: ./tools/verify.sh .
