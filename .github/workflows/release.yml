@@ -57,18 +57,21 @@ jobs:
           cd dist
           tar -czf "../docgov-${{ matrix.target }}.tar.gz" docgov
           cd ..
-          shasum -a 256 "docgov-${{ matrix.target }}.tar.gz" > "docgov-${{ matrix.target }}.tar.gz.sha256"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "docgov-${{ matrix.target }}.tar.gz" > "docgov-${{ matrix.target }}.tar.gz.sha256"
+          else
+            shasum -a 256 "docgov-${{ matrix.target }}.tar.gz" > "docgov-${{ matrix.target }}.tar.gz.sha256"
+          fi
 
       - name: Package archive (Windows)
         if: matrix.os == 'windows-latest'
-        shell: bash
+        shell: pwsh
         run: |
-          mkdir -p dist
-          cp "target/${{ matrix.target }}/release/docgov.exe" dist/
-          cd dist
-          7z a "../docgov-${{ matrix.target }}.zip" docgov.exe
-          cd ..
-          shasum -a 256 "docgov-${{ matrix.target }}.zip" > "docgov-${{ matrix.target }}.zip.sha256"
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "target/${{ matrix.target }}/release/docgov.exe" -Destination dist/
+          Compress-Archive -Path "dist/docgov.exe" -DestinationPath "docgov-${{ matrix.target }}.zip" -Force
+          $hash = (Get-FileHash -Algorithm SHA256 "docgov-${{ matrix.target }}.zip").Hash.ToLower()
+          "$hash  docgov-${{ matrix.target }}.zip" | Out-File -Encoding ascii "docgov-${{ matrix.target }}.zip.sha256"
 
       - name: Upload binary artifacts
         uses: actions/upload-artifact@v4
