@@ -1,13 +1,10 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::Colorize;
 use flate2::read::GzDecoder;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use tar::Archive;
-
-pub const EMBEDDED_ASSETS_TAR_GZ: &[u8] =
-    include_bytes!(concat!(env!("OUT_DIR"), "/docgov-assets.tar.gz"));
 
 pub struct RemoteClient {
     pub source: String,
@@ -20,6 +17,41 @@ impl RemoteClient {
             source: source.trim_end_matches('/').to_string(),
             r#ref: r#ref.to_string(),
         }
+    }
+
+    /// Check whether source specifies a local filesystem path
+    pub fn local_spec_dir(&self, workspace_root: &Path) -> Option<PathBuf> {
+        let path_str = self.source.strip_prefix("file://").unwrap_or(&self.source);
+        if path_str == "." || path_str == "local" || path_str == "self" {
+            let ws_spec = workspace_root.join("spec");
+            if ws_spec.is_dir() {
+                return Some(ws_spec);
+            }
+            if let Ok(cur) = std::env::current_dir() {
+                let cur_spec = cur.join("spec");
+                if cur_spec.is_dir() {
+                    return Some(cur_spec);
+                }
+            }
+            if workspace_root.is_dir() {
+                return Some(workspace_root.to_path_buf());
+            }
+        }
+        let direct_path = Path::new(path_str);
+        if direct_path.is_dir() {
+            if direct_path.join("spec").is_dir() {
+                return Some(direct_path.join("spec"));
+            }
+            return Some(direct_path.to_path_buf());
+        }
+        let ws_relative = workspace_root.join(path_str);
+        if ws_relative.is_dir() {
+            if ws_relative.join("spec").is_dir() {
+                return Some(ws_relative.join("spec"));
+            }
+            return Some(ws_relative);
+        }
+        None
     }
 
     /// Determine local cache directory for this specific upstream and ref
@@ -39,12 +71,38 @@ impl RemoteClient {
         cache_base.join(sanitized_source).join(&self.r#ref)
     }
 
-    /// Fetch directives snippet with cache-first strategy and embedded fallback
-    pub fn fetch_directives(&self, fallback: &str) -> Result<(String, String)> {
+    /// Fetch directives snippet with local-spec, cache-first, and remote-network strategy.
+    /// Fails deterministically if the asset is not reachable.
+    pub fn fetch_directives(&self, workspace_root: Option<&Path>) -> Result<(String, String)> {
+        // 1. Local workspace specification source check
+        if let Some(ws) = workspace_root {
+            if let Some(spec_dir) = self.local_spec_dir(ws) {
+                let candidate_file = if spec_dir.join("directives.snippet").is_file() {
+                    spec_dir.join("directives.snippet")
+                } else if spec_dir.join("spec/directives.snippet").is_file() {
+                    spec_dir.join("spec/directives.snippet")
+                } else {
+                    anyhow::bail!(
+                        "Local governance directory '{}' does not contain 'directives.snippet'.",
+                        spec_dir.display()
+                    );
+                };
+                let content = fs::read_to_string(&candidate_file).with_context(|| {
+                    format!("Failed to read local snippet at {}", candidate_file.display())
+                })?;
+                println!(
+                    "{} Using local specification directives ({})",
+                    "✔".green().bold(),
+                    candidate_file.display()
+                );
+                return Ok((content, format!("local:{}", candidate_file.display())));
+            }
+        }
+
         let cache_dir = self.get_cache_dir();
         let cache_file = cache_dir.join("directives.snippet");
 
-        // 1. Cache hit check: if cached locally, use immediately without network call
+        // 2. Cache hit check: if cached locally, use immediately without network call
         if cache_file.exists() {
             if let Ok(content) = fs::read_to_string(&cache_file) {
                 if !content.trim().is_empty() {
@@ -58,7 +116,7 @@ impl RemoteClient {
             }
         }
 
-        // 2. Network fetch attempt
+        // 3. Network fetch attempt
         let download_urls = self.candidate_download_urls();
         for url in &download_urls {
             match self.download_url(url) {
@@ -77,12 +135,18 @@ impl RemoteClient {
             }
         }
 
-        // 3. Fallback to embedded baseline if offline or remote not available yet
-        println!(
-            "{} Remote not reachable or release asset pending; using built-in baseline directives",
-            "ℹ".cyan().bold()
+        // 4. Deterministic failure when unresolvable
+        anyhow::bail!(
+            "Failed to fetch directives snippet for upstream '{}' (ref: '{}').\n\
+             Endpoints attempted:\n\
+             - {}\n\
+             - {}\n\
+             Asset not found in local cache or remote endpoints. Please check network connectivity or upstream release status.",
+            self.source,
+            self.r#ref,
+            download_urls[0],
+            download_urls[1]
         );
-        Ok((fallback.to_string(), "embedded".to_string()))
     }
 
     /// Atomically sync and replace the canonical governance documentation mirror
@@ -94,6 +158,13 @@ impl RemoteClient {
         force: bool,
     ) -> Result<String> {
         let target_dir = workspace_root.join(target_rel_path);
+
+        // 1. Local spec source: sync directly from local directory
+        if let Some(spec_dir) = self.local_spec_dir(workspace_root) {
+            return self.sync_from_local_dir(&spec_dir, &target_dir, workspace_root);
+        }
+
+        // 2. Remote spec source: fetch release archive or read cache
         let cache_dir = self.get_cache_dir();
         let cache_tar = cache_dir.join("docgov-assets.tar.gz");
 
@@ -121,21 +192,24 @@ impl RemoteClient {
                     );
                     bytes
                 }
-                Err(_) => {
-                    println!(
-                        "{} Remote release archive not yet available or offline; using embedded canonical specification baseline",
-                        "ℹ".cyan().bold()
+                Err(err) => {
+                    anyhow::bail!(
+                        "Failed to download governance documentation assets for upstream '{}/{}' (ref: '{}').\n\
+                         URL: {}\n\
+                         Error: {}\n\
+                         Release asset 'docgov-assets.tar.gz' is unreachable. Ensure the release exists and assets are published.",
+                        owner,
+                        repo,
+                        self.r#ref,
+                        download_url,
+                        err
                     );
-                    EMBEDDED_ASSETS_TAR_GZ.to_vec()
                 }
             }
         };
 
         // Compute SHA-256 fingerprint of the tarball
-        let archive_hash = crate::lockfile::compute_sha256(&format!(
-            "{:x?}",
-            &tar_bytes[..tar_bytes.len().min(4096)]
-        ));
+        let archive_hash = crate::lockfile::compute_sha256_bytes(&tar_bytes);
 
         // Temporary staging directory for atomic unpack
         let staging_dir = target_dir
@@ -188,8 +262,7 @@ impl RemoteClient {
         }
 
         if fs::rename(&staging_dir, &target_dir).is_err() {
-            // Fallback for cross-filesystem moves
-            copy_dir_all(&staging_dir, &target_dir)?;
+            copy_dir_all(&staging_dir, &target_dir, true)?;
             let _ = fs::remove_dir_all(&staging_dir);
         }
 
@@ -202,6 +275,45 @@ impl RemoteClient {
         Ok(archive_hash)
     }
 
+    fn sync_from_local_dir(
+        &self,
+        spec_dir: &Path,
+        target_dir: &Path,
+        workspace_root: &Path,
+    ) -> Result<String> {
+        let staging_dir = target_dir
+            .parent()
+            .unwrap_or(workspace_root)
+            .join(format!(".tmp_sync_{}", std::process::id()));
+        if staging_dir.exists() {
+            let _ = fs::remove_dir_all(&staging_dir);
+        }
+        fs::create_dir_all(&staging_dir)?;
+
+        copy_dir_all(spec_dir, &staging_dir, false)?;
+
+        if target_dir.exists() {
+            fs::remove_dir_all(target_dir)?;
+        }
+        if let Some(parent) = target_dir.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        if fs::rename(&staging_dir, target_dir).is_err() {
+            copy_dir_all(&staging_dir, target_dir, true)?;
+            let _ = fs::remove_dir_all(&staging_dir);
+        }
+
+        let hash = compute_dir_sha256(target_dir)?;
+        println!(
+            "{} Atomically synchronized local governance specification into {}",
+            "✔".green().bold(),
+            target_dir.display()
+        );
+
+        Ok(hash)
+    }
+
     fn candidate_download_urls(&self) -> Vec<String> {
         let (owner, repo) = self.parse_owner_repo();
         vec![
@@ -210,7 +322,7 @@ impl RemoteClient {
                 "https://github.com/{}/{}/releases/download/{}/directives.snippet",
                 owner, repo, self.r#ref
             ),
-            // 2. Raw GitHub content (fallback)
+            // 2. Raw GitHub content (fallback for git refs before release packaging)
             format!(
                 "https://raw.githubusercontent.com/{}/{}/{}/spec/directives.snippet",
                 owner, repo, self.r#ref
@@ -251,18 +363,42 @@ impl RemoteClient {
     }
 }
 
-fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
+fn copy_dir_all(src: &Path, dst: &Path, include_directives: bool) -> Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let ty = entry.file_type()?;
         let from = entry.path();
-        let to = dst.join(entry.file_name());
+        let file_name = entry.file_name();
+        if !include_directives && file_name == "directives.snippet" {
+            continue;
+        }
+        let to = dst.join(file_name);
         if ty.is_dir() {
-            copy_dir_all(&from, &to)?;
+            copy_dir_all(&from, &to, include_directives)?;
         } else {
             fs::copy(&from, &to)?;
         }
     }
     Ok(())
+}
+
+fn compute_dir_sha256(dir: &Path) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    let mut entries = Vec::new();
+    for entry in walkdir::WalkDir::new(dir).sort_by_file_name() {
+        let entry = entry?;
+        if entry.file_type().is_file() {
+            entries.push(entry.into_path());
+        }
+    }
+    entries.sort();
+    for path in entries {
+        let rel = path.strip_prefix(dir).unwrap_or(&path);
+        hasher.update(rel.to_string_lossy().as_bytes());
+        let content = fs::read(&path)?;
+        hasher.update(&content);
+    }
+    Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
 }

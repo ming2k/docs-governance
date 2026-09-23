@@ -11,7 +11,6 @@ use crate::lockfile::{compute_sha256, ArtifactEntry, DocgovLock};
 use crate::remote::RemoteClient;
 use crate::rules::lint_05_agent_directives::{
     patch_agent_directives, PatchAction, DOCGOV_DIRECTIVES_BEGIN, DOCGOV_DIRECTIVES_END,
-    DOCGOV_DIRECTIVES_SNIPPET,
 };
 
 #[derive(Parser, Debug)]
@@ -19,7 +18,7 @@ use crate::rules::lint_05_agent_directives::{
     name = "docgov",
     version,
     about = "High-performance, zero-vendoring documentation and architecture governance linter",
-    long_about = "A fast, deterministic compiler-grade linter for Protocol v0.0.2 documentation governance and system invariants."
+    long_about = "A fast, deterministic compiler-grade linter for Protocol v0.0.3 documentation governance and system invariants."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -43,7 +42,7 @@ pub enum OutputFormat {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Check repository compliance with all Protocol v0.0.2 invariants
+    /// Check repository compliance with all Protocol v0.0.3 invariants
     Check {
         /// Also run git-diff trigger matrix checks
         #[arg(long)]
@@ -73,6 +72,10 @@ pub enum Commands {
         /// Force re-fetch and re-download assets
         #[arg(long, short = 'F')]
         force: bool,
+
+        /// Synchronize from local specification directory (spec/)
+        #[arg(long)]
+        local: bool,
     },
 }
 
@@ -144,8 +147,8 @@ pub fn run() -> Result<i32> {
             init_repo(&target_dir, force)?;
             Ok(0)
         }
-        Commands::Sync { force } => {
-            sync_repo(&target_dir, force)?;
+        Commands::Sync { force, local } => {
+            sync_repo(&target_dir, force, local)?;
             Ok(0)
         }
     }
@@ -160,7 +163,7 @@ fn output_diagnostics(
         OutputFormat::Text => {
             if diagnostics.is_empty() {
                 println!(
-                    "{} All Protocol v0.0.2 documentation invariants verified in {:.3}s.",
+                    "{} All Protocol v0.0.3 documentation invariants verified in {:.3}s.",
                     "✔".green().bold(),
                     duration.as_secs_f64()
                 );
@@ -205,12 +208,12 @@ fn output_diagnostics(
 fn init_repo(dir: &std::path::Path, force: bool) -> Result<()> {
     let docgov_yml = dir.join(".docgov.yml");
 
-    let yml_content = r#"version: "0.0.2"
+    let yml_content = r#"version: "0.0.3"
 
 # Remote Upstream & Protocol Distribution
 upstream:
   source: "https://github.com/ming2k/docs-governance"
-  ref: "v0.0.2"
+  ref: "v0.0.3"
 
 # Canonical Governance Documentation Mirror (for Agent Context)
 governance_docs:
@@ -268,17 +271,23 @@ triggers:
         println!("{} Exists: {}", "~".yellow().bold(), docgov_yml.display());
     }
 
-    sync_repo(dir, force)
+    sync_repo(dir, force, false)
 }
 
-fn sync_repo(dir: &std::path::Path, force: bool) -> Result<()> {
+fn sync_repo(dir: &std::path::Path, force: bool, local: bool) -> Result<()> {
     // Load configuration to discover agent directive targets, upstream and governance docs settings
     let (cfg, _) = Config::load_from_dir(dir).unwrap_or((Config::default(), None));
 
-    // Fetch directives using remote client (checks local cache first, fallback to embedded)
-    let remote_client = RemoteClient::new(&cfg.upstream.source, &cfg.upstream.r#ref);
+    let (source, r#ref) = if local {
+        (".".to_string(), "local".to_string())
+    } else {
+        (cfg.upstream.source.clone(), cfg.upstream.r#ref.clone())
+    };
+
+    // Fetch directives using remote client (checks local spec, local cache, or remote endpoints)
+    let remote_client = RemoteClient::new(&source, &r#ref);
     let (directives_content, _source_info) =
-        remote_client.fetch_directives(DOCGOV_DIRECTIVES_SNIPPET)?;
+        remote_client.fetch_directives(Some(dir))?;
 
     let targets = if cfg.agent_directives.targets.is_empty() {
         vec!["AGENTS.md".to_string()]
@@ -287,11 +296,11 @@ fn sync_repo(dir: &std::path::Path, force: bool) -> Result<()> {
     };
 
     let mut lock = DocgovLock::load_from_dir(dir)?.unwrap_or_else(|| {
-        DocgovLock::new(&cfg.version, &cfg.upstream.source, &cfg.upstream.r#ref)
+        DocgovLock::new(&cfg.version, &source, &r#ref)
     });
     lock.protocol_version = cfg.version.clone();
-    lock.upstream.source = cfg.upstream.source.clone();
-    lock.upstream.r#ref = cfg.upstream.r#ref.clone();
+    lock.upstream.source = source.clone();
+    lock.upstream.r#ref = r#ref.clone();
 
     // 1. Synchronize agent directives (non-invasively, preserving custom guidelines & single #)
     for target in targets {
@@ -303,7 +312,7 @@ fn sync_repo(dir: &std::path::Path, force: bool) -> Result<()> {
         };
 
         let (new_content, action) =
-            patch_agent_directives(existing.as_deref(), Some(&directives_content));
+            patch_agent_directives(existing.as_deref(), &directives_content);
 
         // Compute hash of the directive block inside the patched content
         if let Some(b) = new_content.find(DOCGOV_DIRECTIVES_BEGIN) {

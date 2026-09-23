@@ -9,6 +9,8 @@ use docgov::rules::Rule;
 use std::fs;
 use tempfile::tempdir;
 
+const SAMPLE_SNIPPET: &str = include_str!("../spec/directives.snippet");
+
 #[test]
 fn test_lint_01_root_sanitizer() {
     let dir = tempdir().unwrap();
@@ -224,7 +226,7 @@ fn test_lint_05_agent_directives_rule() {
     // 3. File with marker block -> passes
     let (patched, action) = patch_agent_directives(
         Some(&fs::read_to_string(root.join("AGENTS.md")).unwrap()),
-        None,
+        SAMPLE_SNIPPET,
     );
     assert_eq!(action, PatchAction::Appended);
     fs::write(root.join("AGENTS.md"), patched).unwrap();
@@ -241,7 +243,7 @@ fn test_lint_05_agent_directives_rule() {
 fn test_patch_agent_directives_preserves_single_h1_and_existing_content() {
     let original =
         "# My Custom Coding Assistant Guidelines\n\n## Section 1\nSome developer instructions.\n";
-    let (patched, action) = patch_agent_directives(Some(original), None);
+    let (patched, action) = patch_agent_directives(Some(original), SAMPLE_SNIPPET);
 
     assert_eq!(action, PatchAction::Appended);
     // Preserves original content verbatim
@@ -266,20 +268,20 @@ fn test_patch_agent_directives_preserves_single_h1_and_existing_content() {
     assert!(patched.contains("## Documentation Governance Directives"));
 
     // Test idempotency: running again on patched text returns Unchanged
-    let (reこと, action2) = patch_agent_directives(Some(&patched), None);
+    let (reこと, action2) = patch_agent_directives(Some(&patched), SAMPLE_SNIPPET);
     assert_eq!(action2, PatchAction::Unchanged);
     assert_eq!(reこと, patched);
 
     // Test update: modifying the interior of the marker block is cleanly updated
     let mutated = patched.replace("### 1. Machine Invariants", "### 1. Outdated Invariants");
-    let (updated, action3) = patch_agent_directives(Some(&mutated), None);
+    let (updated, action3) = patch_agent_directives(Some(&mutated), SAMPLE_SNIPPET);
     assert_eq!(action3, PatchAction::Updated);
     assert!(updated.contains("### 1. Machine Invariants"));
     assert!(!updated.contains("### 1. Outdated Invariants"));
     assert!(updated.starts_with(original.trim_end()));
 
     // Test creation from None: creates with H1 header
-    let (created, action4) = patch_agent_directives(None, None);
+    let (created, action4) = patch_agent_directives(None, SAMPLE_SNIPPET);
     assert_eq!(action4, PatchAction::Created);
     assert!(created.starts_with("# Agent Directives\n\n"));
     assert!(created.contains("## Documentation Governance Directives"));
@@ -290,7 +292,7 @@ fn test_lockfile_drift_detection() {
     let dir = tempdir().unwrap();
     let root = dir.path();
 
-    let (patched, _) = patch_agent_directives(None, None);
+    let (patched, _) = patch_agent_directives(None, SAMPLE_SNIPPET);
     fs::write(root.join("AGENTS.md"), &patched).unwrap();
 
     let mut lock = docgov::lockfile::DocgovLock::new(
@@ -336,9 +338,8 @@ fn test_sync_governance_docs_atomic_prune() {
 
     assert!(ghost_file.exists());
 
-    // 3. Run sync_governance_docs
-    let client =
-        docgov::remote::RemoteClient::new("https://github.com/ming2k/docs-governance", "v0.0.1");
+    // 3. Run sync_governance_docs from local repository spec
+    let client = docgov::remote::RemoteClient::new(".", "local");
     client
         .sync_governance_docs(root, "docs/governance/documentation", true)
         .unwrap();
@@ -360,4 +361,76 @@ fn test_sync_governance_docs_atomic_prune() {
     // 6. Verify user's business doc was completely untouched!
     assert!(user_adr.exists());
     assert_eq!(fs::read_to_string(&user_adr).unwrap(), "# Business ADR\n");
+}
+
+#[test]
+fn test_remote_client_fails_deterministically_without_embedded_fallback() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Point to a non-existent remote repo and non-existent version
+    let client = docgov::remote::RemoteClient::new(
+        "https://github.com/nonexistent-org-99999/nonexistent-repo-99999",
+        "v99.99.99",
+    );
+
+    // Fetching directives must fail explicitly, never silently falling back to embedded constants!
+    let directives_res = client.fetch_directives(None);
+    assert!(
+        directives_res.is_err(),
+        "Must fail when remote endpoint is not found, never silently fallback!"
+    );
+    let err_msg = directives_res.err().unwrap().to_string();
+    assert!(
+        err_msg.contains("Failed to fetch directives snippet for upstream"),
+        "Error message must be clear: {err_msg}"
+    );
+
+    // Syncing governance docs must fail explicitly without embedded tar fallback!
+    let sync_res = client.sync_governance_docs(root, "docs/governance/documentation", true);
+    assert!(
+        sync_res.is_err(),
+        "Must fail when remote release archive is not found, never silently fallback!"
+    );
+    let err_msg = sync_res.err().unwrap().to_string();
+    assert!(
+        err_msg.contains("Failed to download governance documentation assets"),
+        "Error message must be clear: {err_msg}"
+    );
+}
+
+#[test]
+fn test_local_spec_sync_deterministic_hash_and_directives() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+
+    // Setup local spec in workspace
+    let spec_dir = root.join("spec");
+    fs::create_dir_all(spec_dir.join("core")).unwrap();
+    let snippet_content = "<!-- BEGIN DOCGOV DIRECTIVES -->\n## Custom Local Directives\n<!-- END DOCGOV DIRECTIVES -->";
+    fs::write(spec_dir.join("directives.snippet"), snippet_content).unwrap();
+    fs::write(spec_dir.join("core/invariants.md"), "# Local Invariants\n").unwrap();
+
+    let client = docgov::remote::RemoteClient::new(".", "local");
+    let (fetched_snippet, source_info) = client.fetch_directives(Some(root)).unwrap();
+    assert_eq!(fetched_snippet, snippet_content);
+    assert!(source_info.starts_with("local:"));
+
+    let hash = client
+        .sync_governance_docs(root, "docs/governance/documentation", true)
+        .unwrap();
+    assert!(hash.starts_with("sha256:"));
+
+    // Verify documentation was created from local spec
+    assert!(root
+        .join("docs/governance/documentation/core/invariants.md")
+        .exists());
+    assert_eq!(
+        fs::read_to_string(root.join("docs/governance/documentation/core/invariants.md")).unwrap(),
+        "# Local Invariants\n"
+    );
+    // Directives snippet must not leak into documentation mirror
+    assert!(!root
+        .join("docs/governance/documentation/directives.snippet")
+        .exists());
 }

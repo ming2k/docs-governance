@@ -1,6 +1,6 @@
 [package]
 name = "docgov"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 description = "High-performance, zero-vendoring documentation and architecture governance linter"
 license = "MIT"
@@ -26,10 +26,6 @@ anyhow = "1.0"
 ureq = "2.10"
 sha2 = "0.10"
 hex = "0.4"
-flate2 = "1.0"
-tar = "0.4"
-
-[build-dependencies]
 flate2 = "1.0"
 tar = "0.4"
 

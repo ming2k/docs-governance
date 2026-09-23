@@ -73,9 +73,13 @@ impl DocgovLock {
 }
 
 pub fn compute_sha256(content: &str) -> String {
+    compute_sha256_bytes(content.as_bytes())
+}
+
+pub fn compute_sha256_bytes(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
-    hasher.update(content.as_bytes());
+    hasher.update(bytes);
     format!("sha256:{}", hex::encode(hasher.finalize()))
 }
 
